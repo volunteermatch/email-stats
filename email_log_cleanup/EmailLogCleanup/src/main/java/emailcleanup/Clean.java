@@ -86,7 +86,6 @@ public class Clean implements RequestHandler<Object, String>{
             stat.close();
             con.close();
             
-            //Find a way to return number of rows deleted.
             return "SUCCESS: " + numSendgrid + " rows deleted from sendgrid_event table and " + numMailLog +
                        " rows deleted from mail_log table";
         } catch (ClassNotFoundException | SQLException | ParseException e) {
