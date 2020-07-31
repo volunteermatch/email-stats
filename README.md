@@ -1,6 +1,6 @@
 # Lambda Function Email Log Cleanup
 
-###Goal:
+### Goal:
 The email_log_cleanup project is a standalone AWS Lambda 
 function that uses a scheduled trigger to delete old 
 email logs on a daily basis. This functions by taking in an environment
@@ -8,7 +8,7 @@ variable that determines how many days ago the cutoff will be for deletion.
 The function then outputs how many entries have been deleted from each
 table.
 
-###Prerequisites:
+### Prerequisites:
 To use this function, a user will need access to an IAM role
 that is conencted to the VolunteerMatch vm_eng AWS account.
 That IAM role will likely need a series of permissions including:
@@ -23,7 +23,7 @@ and Maven. I built this function in IntelliJ 2020.1 using the AWS Toolkit for Je
 
 For more information on using an AWS Toolkit see the AWS README under email_log_cleanup/events.
 
-###Function Execution:
+### Function Execution:
 
 The best way to see the function execution is online in the AWS
 console.
@@ -52,7 +52,7 @@ If you wish to alter the cutoff date for the email log deletion, just
 change the environment variable "OFFSET" to the desired integer. 
 - Ex: If the OFFSET is 365, any email older than 1 year will be deleted.
 
-###How to Contribute:
+### How to Contribute:
 
 For any further contribution to this project or repository, do the following:
 1. Fork this repository and clone the fork to the desired location on your computer.
@@ -62,5 +62,5 @@ For any further contribution to this project or repository, do the following:
 5. Push committed changes to new branch: `git push -u origin new_branch`
 6. Create your pull request.
 
-###Author:
+### Author:
 - @smashed-toes
