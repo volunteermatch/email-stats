@@ -21,7 +21,9 @@ and Maven. I built this function in IntelliJ 2020.1 using the AWS Toolkit for Je
 [IntelliJ](https://docs.aws.amazon.com/toolkit-for-jetbrains/latest/userguide/welcome.html).
 
 
-For more information on using an AWS Toolkit see the AWS README under email_log_cleanup/events.
+For more information on AWS Toolkits and detailed instructions on
+how to set it up for various compatible IDEs, visit [AWS SDKs and Tools](https://aws.amazon.com/getting-started/tools-sdks/)
+and go to the "IDE and IDE Toolkits" section to find your preferred IDE.
 
 ### Function Execution:
 
