@@ -38,36 +38,7 @@ public class Clean implements RequestHandler<Object, String>{
             String jdbc = "jdbc:mysql://" + hostname + ":" + port + "/" + dbName+ "?user=" + dbUser + "&password=" + dbPass;
             Connection con = DriverManager.getConnection(jdbc);
             
-            /*
-            //Testing connection and code by using SELECT statements
-            ArrayList<String> dateList1 = new ArrayList<>();
-            Statement stat = con.createStatement();
-            stat.execute("SET FOREIGN_KEY_CHECKS=0");
-            String update = "SELECT timestamp FROM sendgrid_event WHERE timestamp < ?";
-            PreparedStatement statement = con.prepareStatement(update);
-            statement.setTimestamp(1, dateX);
-            ResultSet rs = statement.executeQuery();
-            while(rs.next()) {
-                dateList1.add(rs.getTimestamp(1).toString());
-            }
-            System.out.println("Sendgrid Dates " + Arrays.toString(dateList1.toArray()));
-            rs.close();
-            
-            ArrayList<String> dateList2 = new ArrayList<>();
-            update = "SELECT sent_time FROM mail_log WHERE sent_time < ?";
-            statement = con.prepareStatement(update);
-            statement.setTimestamp(1, dateX);
-            ResultSet rs2 = statement.executeQuery();
-            while(rs2.next()) {
-                dateList2.add(rs2.getTimestamp(1).toString());
-            }
-            System.out.println("Mail Log Dates " + Arrays.toString(dateList2.toArray()));
-            rs2.close();
-            int numSendgrid = 0;
-            int numMailLog = 0;
-             */
-            
-            //Actual function code, will be used for deleting entries and updating database.
+            //Code used for deleting entries and updating database.
             Statement stat = con.createStatement();
             stat.execute("SET FOREIGN_KEY_CHECKS=0");
             String update = "DELETE FROM sendgrid_event WHERE timestamp < ?";
