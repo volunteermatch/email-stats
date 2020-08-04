@@ -1,0 +1,5 @@
+target
+.idea
+build
+.aws-sam
+EmailLogCleanup.iml
