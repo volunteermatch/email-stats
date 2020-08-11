@@ -1,11 +1,13 @@
 package org.vm.email.cleanup;
 
+import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.sql.*;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.*;
+import java.util.Date;
 
 import com.amazonaws.AmazonServiceException;
 import com.amazonaws.SdkClientException;
@@ -15,8 +17,6 @@ import com.amazonaws.services.s3.AmazonS3ClientBuilder;
 import com.amazonaws.services.s3.model.ObjectMetadata;
 import com.amazonaws.services.s3.model.PutObjectRequest;
 import com.amazonaws.services.s3.model.S3Object;
-import org.json.simple.JSONArray;
-import org.json.simple.JSONObject;
 import com.amazonaws.services.lambda.runtime.events.S3Event;
 import com.amazonaws.services.s3.AmazonS3;
 import com.amazonaws.services.s3.event.S3EventNotification.S3EventNotificationRecord;
@@ -41,6 +41,14 @@ public class Clean implements RequestHandler<Object, String>, WriteLog {
             String offset = System.getenv("OFFSET");
             Timestamp dateX = convertToTimestamp(offset);
             
+            //Retrieve name for CSV file and Number of Emails desired.
+            String filename = System.getenv("LOGNAME");
+            String emailNum = System.getenv("EMAILNUM");
+            int maxEmailNum = Integer.parseInt(emailNum);
+            
+            //Retrieve name of destination bucket for CSV log.
+            String bucketName = System.getenv("BUCKET");
+            
             //Get information for accessing database from environment variables.
             String dbName = System.getenv("DBNAME");
             String dbUser = System.getenv("DBUSER");
@@ -52,59 +60,73 @@ public class Clean implements RequestHandler<Object, String>, WriteLog {
             Class.forName("com.mysql.cj.jdbc.Driver");
             String jdbc = "jdbc:mysql://" + hostname + ":" + port + "/" + dbName+ "?user=" + dbUser + "&password=" + dbPass;
             Connection con = DriverManager.getConnection(jdbc);
-    
-            AmazonS3 s3Client = AmazonS3ClientBuilder.defaultClient();
-    
-            String query = "SELECT * FROM mail_log WHERE timestamp < ? AND type != custom_email_to_volunteer";
+            
+            //Creates new csv file to be written to.
+            File file = new File(filename + ".csv");
+            if (file.createNewFile()) {
+                System.out.println("File Created: " + file.getName());
+                System.out.println("Path: " + file.getAbsolutePath());
+            } else {
+                System.out.println("ERROR: Something wrong with writing file");
+            }
+            
+            //Sets up the csvWriter and the header for the csv.
+            FileWriter csvWriter = new FileWriter(filename + ".csv");
+            writeCSVHeader(csvWriter);
+            
+            //Loop through all emails from before selected date of a certain type and add their info to a CSV file.
+            String query = "SELECT * FROM mail_log WHERE sent_time < ? AND type != 'custom_email_to_volunteer'";
             PreparedStatement statement = con.prepareStatement(query);
             statement.setTimestamp(1, dateX);
             ResultSet rs = statement.executeQuery();
-            while (rs.next()) {
-                JSONObject mailInfo = new JSONObject();
-                mailInfo.put("id", rs.getInt("id"));
-                mailInfo.put("email", rs.getString("email"));
-                mailInfo.put("guid", rs.getString("guid"));
-                mailInfo.put("host", rs.getString("host"));
-                mailInfo.put("ref1", rs.getString("ref1"));
-                mailInfo.put("ref2", rs.getString("ref2"));
-                mailInfo.put("sent_time", rs.getTimestamp("sent_time"));
-                mailInfo.put("type", rs.getString("type"));
-    
-                JSONArray eventArray = new JSONArray();
+            while (rs.next() && maxEmailNum < 0) {
+                List<String> mailInfo = new ArrayList<>();
+                mailInfo.add(Integer.toString(rs.getInt("id")));
+                mailInfo.add(rs.getString("email"));
+                mailInfo.add(rs.getString("guid"));
+                mailInfo.add(rs.getString("host"));
+                mailInfo.add(rs.getString("ref1"));
+                mailInfo.add(rs.getString("ref2"));
+                mailInfo.add(tsToString(rs.getTimestamp("sent_time")));
+                mailInfo.add(rs.getString("type"));
                 query = "SELECT * FROM sendgrid_event WHERE sendgrid_event.guid = ?";
                 statement = con.prepareStatement(query);
                 String currGuid = rs.getString("guid");
                 statement.setString(1, currGuid);
                 ResultSet rs2 = statement.executeQuery();
                 while (rs2.next()) {
-                    JSONObject eventInfo = new JSONObject();
-                    eventInfo.put("sg_event_id", rs2.getString("sg_event_id"));
-                    eventInfo.put("asm_group_id", rs2.getInt("asm_group_id"));
-                    eventInfo.put("attempt", rs2.getString("attempt"));
-                    eventInfo.put("category", rs2.getString("category"));
-                    eventInfo.put("email", rs2.getString("email"));
-                    eventInfo.put("event", rs2.getString("event"));
-                    eventInfo.put("guid", currGuid);
-                    eventInfo.put("ip", rs2.getString("ip"));
-                    eventInfo.put("reason", rs2.getString("reason"));
-                    eventInfo.put("response", rs2.getString("response"));
-                    eventInfo.put("sg_message_id", rs2.getString("sg_message_id"));
-                    eventInfo.put("smtp_id", rs2.getString("smtp_id"));
-                    eventInfo.put("status", rs2.getString("status"));
-                    eventInfo.put("timestamp", rs2.getTimestamp("timestamp"));
-                    eventInfo.put("tls", rs2.getInt("tls"));
-                    eventInfo.put("type", rs2.getString("type"));
-                    eventInfo.put("unsubscribe_url", rs2.getString("unsubscribe_url"));
-                    eventInfo.put("url", rs2.getString("url"));
-                    eventInfo.put("url_offset", rs2.getString("url_offset"));
-                    eventInfo.put("useragent", rs2.getString("useragent"));
-                    eventInfo.put("vm_timestamp", rs2.getTimestamp("vm_timestamp"));
-                    
-                    eventArray.add(eventInfo);
+                    List<String> eventInfo = new ArrayList<>();
+                    eventInfo.add(rs2.getString("sg_event_id"));
+                    eventInfo.add(Integer.toString(rs2.getInt("asm_group_id")));
+                    eventInfo.add(rs2.getString("attempt"));
+                    eventInfo.add(rs2.getString("category"));
+                    eventInfo.add(rs2.getString("email"));
+                    eventInfo.add(rs2.getString("event"));
+                    eventInfo.add(rs2.getString("ip"));
+                    eventInfo.add(rs2.getString("reason"));
+                    eventInfo.add(rs2.getString("response"));
+                    eventInfo.add(rs2.getString("sg_message_id"));
+                    eventInfo.add(rs2.getString("smtp_id"));
+                    eventInfo.add(rs2.getString("status"));
+                    eventInfo.add(tsToString(rs2.getTimestamp("timestamp")));
+                    eventInfo.add(Integer.toString(rs2.getInt("tls")));
+                    eventInfo.add(rs2.getString("type"));
+                    eventInfo.add(rs2.getString("unsubscribe_url"));
+                    eventInfo.add(rs2.getString("url"));
+                    eventInfo.add(rs2.getString("url_offset"));
+                    eventInfo.add(rs2.getString("useragent"));
+                    eventInfo.add(tsToString(rs2.getTimestamp("vm_timestamp")));
+                    csvWriter.append(String.join(",", mailInfo));
+                    csvWriter.append(",");
+                    csvWriter.append(String.join(",", eventInfo));
+                    csvWriter.append("\n");
                 }
-                mailInfo.put("sendgrid_events", eventArray);
-                WriteLog(mailInfo, currGuid, s3Client);
+                //Decreases the counter for the configurable max number of emails saved to CSV file.
+                maxEmailNum --;
             }
+            csvWriter.flush();
+            csvWriter.close();
+            WriteLog(file, bucketName);
             
             
             //Code used for deleting entries and updating database.
@@ -131,11 +153,12 @@ public class Clean implements RequestHandler<Object, String>, WriteLog {
             
             return "SUCCESS: " + numSendgrid + " rows deleted from sendgrid_event table and " + numMailLog +
                        " rows deleted from mail_log table";
-        } catch (ClassNotFoundException | SQLException | ParseException e) {
+        } catch (ClassNotFoundException | SQLException | ParseException | IOException e) {
             e.printStackTrace();
             return "ERROR: Database connection error or parsing error";
         }
     }
+    
     
     /**
      * Takes a number in the form of a string representing a number of days and returns
@@ -157,20 +180,105 @@ public class Clean implements RequestHandler<Object, String>, WriteLog {
         return new Timestamp(sDate.getTime());
     }
     
+    /**
+     * A helper method that turns a timestamp into a string for the CSV file.
+     * @param ts Timestamp of email.
+     * @return timestamp in a string format that mimics the database timestamp format.
+     */
+    private String tsToString(Timestamp ts) {
+        Date date = new Date();
+        date.setTime(ts.getTime());
+        return new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(date);
+    }
+    
+    /**
+     * Method inherited from the WriteLog interface that will create a put request for the CSV file
+     * into the s3 bucket.
+     * @param file that is added to s3 bucket.
+     * @param bucketName is the name of the destination s3 bucket.
+     */
     @Override
-    public void WriteLog(JSONObject jsonObject, String filename, AmazonS3 s3Client) {
-        try (FileWriter file = new FileWriter(filename + ".json")) {
-            
-            PutObjectRequest request = new PutObjectRequest("bucketName", "fileObjKeyName", jsonObject.toJSONString());
+    public void WriteLog(File file, String bucketName) {
+    
+        //Sets up the s3 bucket.
+        AmazonS3 s3Client = AmazonS3ClientBuilder.defaultClient();
+        
+        try {
+            PutObjectRequest request
+                = new PutObjectRequest(bucketName, file.getName(), new File(file.getName()));
             ObjectMetadata metadata = new ObjectMetadata();
             metadata.setContentType("plain/text");
             metadata.addUserMetadata("title", "someTitle");
             request.setMetadata(metadata);
             s3Client.putObject(request);
         
-        } catch (IOException | SdkClientException e) {
+        } catch (SdkClientException e) {
             e.printStackTrace();
         }
     
+    }
+    
+    /**
+     * A helper method that prepares the CSV file header.
+     * @param csvWriter with nothing in it.
+     * @throws IOException if I/O error occurs.
+     */
+    private void writeCSVHeader(FileWriter csvWriter) throws IOException {
+        csvWriter.append("id");
+        csvWriter.append(",");
+        csvWriter.append("email");
+        csvWriter.append(",");
+        csvWriter.append("guid");
+        csvWriter.append(",");
+        csvWriter.append("host");
+        csvWriter.append(",");
+        csvWriter.append("ref1");
+        csvWriter.append(",");
+        csvWriter.append("ref2");
+        csvWriter.append(",");
+        csvWriter.append("sent_time");
+        csvWriter.append(",");
+        csvWriter.append("type");
+        csvWriter.append(",");
+        csvWriter.append("sg_event_id");
+        csvWriter.append(",");
+        csvWriter.append("asm_group_id");
+        csvWriter.append(",");
+        csvWriter.append("attempt");
+        csvWriter.append(",");
+        csvWriter.append("category");
+        csvWriter.append(",");
+        csvWriter.append("email");
+        csvWriter.append(",");
+        csvWriter.append("event");
+        csvWriter.append(",");
+        csvWriter.append("ip");
+        csvWriter.append(",");
+        csvWriter.append("reason");
+        csvWriter.append(",");
+        csvWriter.append("response");
+        csvWriter.append(",");
+        csvWriter.append("sg_message_id");
+        csvWriter.append(",");
+        csvWriter.append("smtp_id");
+        csvWriter.append(",");
+        csvWriter.append("status");
+        csvWriter.append(",");
+        csvWriter.append("timestamp");
+        csvWriter.append(",");
+        csvWriter.append("tls");
+        csvWriter.append(",");
+        csvWriter.append("type");
+        csvWriter.append(",");
+        csvWriter.append("unsubscribe_url");
+        csvWriter.append(",");
+        csvWriter.append("url");
+        csvWriter.append(",");
+        csvWriter.append("url_offset");
+        csvWriter.append(",");
+        csvWriter.append("useragent");
+        csvWriter.append(",");
+        csvWriter.append("vm_timestamp");
+        csvWriter.append("\n");
     }
 }

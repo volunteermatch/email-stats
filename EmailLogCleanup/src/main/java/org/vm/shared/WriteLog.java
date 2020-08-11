@@ -2,9 +2,9 @@ package org.vm.shared;
 
 
 import com.amazonaws.services.s3.AmazonS3;
-import org.json.simple.JSONObject;
+import java.io.File;
 
 public interface WriteLog {
   
-  void WriteLog(JSONObject jsonObject, String filename, AmazonS3 s3);
+  void WriteLog(File filename, String bucketName);
 }
