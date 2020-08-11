@@ -2,4 +2,5 @@ target
 .idea
 build
 .aws-sam
+.DS_store
 EmailLogCleanup.iml
