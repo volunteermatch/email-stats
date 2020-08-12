@@ -70,16 +70,20 @@ public class Clean implements RequestHandler<Object, String>, WriteLog {
                 System.out.println("ERROR: Something wrong with writing file");
             }
             
+            //Setup guid list to loop through.
+            List<String> guidList = new ArrayList<>();
+            
             //Sets up the csvWriter and the header for the csv.
             FileWriter csvWriter = new FileWriter(filename + ".csv");
             writeCSVHeader(csvWriter);
-            
+     
             //Loop through all emails from before selected date of a certain type and add their info to a CSV file.
-            String query = "SELECT * FROM mail_log WHERE sent_time < ? AND type != 'custom_email_to_volunteer'";
+            String query = "SELECT * FROM mail_log WHERE sent_time < ? AND type != 'custom_email_to_volunteer' ORDER BY sent_time ASC LIMIT ?";
             PreparedStatement statement = con.prepareStatement(query);
             statement.setTimestamp(1, dateX);
+            statement.setInt(2, maxEmailNum);
             ResultSet rs = statement.executeQuery();
-            while (rs.next() && maxEmailNum < 0) {
+            while (rs.next()) {
                 List<String> mailInfo = new ArrayList<>();
                 mailInfo.add(Integer.toString(rs.getInt("id")));
                 mailInfo.add(rs.getString("email"));
@@ -92,6 +96,7 @@ public class Clean implements RequestHandler<Object, String>, WriteLog {
                 query = "SELECT * FROM sendgrid_event WHERE sendgrid_event.guid = ?";
                 statement = con.prepareStatement(query);
                 String currGuid = rs.getString("guid");
+                guidList.add(currGuid);
                 statement.setString(1, currGuid);
                 ResultSet rs2 = statement.executeQuery();
                 while (rs2.next()) {
@@ -121,25 +126,33 @@ public class Clean implements RequestHandler<Object, String>, WriteLog {
                     csvWriter.append(String.join(",", eventInfo));
                     csvWriter.append("\n");
                 }
-                //Decreases the counter for the configurable max number of emails saved to CSV file.
-                maxEmailNum --;
+                rs2.close();
             }
+            rs.close();
             csvWriter.flush();
             csvWriter.close();
             WriteLog(file, bucketName);
-            
-            
-            //Code used for deleting entries and updating database.
+    
+            //Allows for deletions to occur regardless of references between tables.
             Statement stat = con.createStatement();
             stat.execute("SET FOREIGN_KEY_CHECKS=0");
-            String update = "DELETE FROM sendgrid_event WHERE timestamp < ?";
-            statement = con.prepareStatement(update);
-            statement.setTimestamp(1, dateX);
-            int numSendgrid = statement.executeUpdate();
             
-            update = "DELETE FROM mail_log WHERE sent_time < ?";
+            //Loops through saved guids from the recording phase and only deletes events that have been recorded.
+            int numSendgrid = 0;
+            for (String guid : guidList) {
+                String update = "DELETE FROM sendgrid_event WHERE guid = ?";
+                statement = con.prepareStatement(update);
+                statement.setString(1, guid);
+                int deletionNum = statement.executeUpdate();
+                numSendgrid = numSendgrid + deletionNum;
+                statement.close();
+            }
+            
+            //Deletes all mail_log information before a certain date with the limit set to match which logs are recorded.
+            String update = "DELETE FROM mail_log WHERE sent_time < ? AND type != 'custom_email_to_volunteer' ORDER BY sent_time ASC LIMIT ?";
             statement = con.prepareStatement(update);
             statement.setTimestamp(1, dateX);
+            statement.setInt(2, maxEmailNum);
             int numMailLog = statement.executeUpdate();
             
             //Closes connections and statements.
@@ -148,11 +161,13 @@ public class Clean implements RequestHandler<Object, String>, WriteLog {
             stat.close();
             con.close();
             
-            System.out.println("SUCCESS: " + numSendgrid + " rows deleted from sendgrid_event table and " + numMailLog +
-                                   " rows deleted from mail_log table");
+            System.out.println("SUCCESS: " + numSendgrid + " rows deleted from sendgrid_event table and " + numMailLog
+                                   + " rows deleted from mail_log table. Deleted information has been recorded in "
+                                   + bucketName + " in file " + filename + ".csv");
             
-            return "SUCCESS: " + numSendgrid + " rows deleted from sendgrid_event table and " + numMailLog +
-                       " rows deleted from mail_log table";
+            return "SUCCESS: " + numSendgrid + " rows deleted from sendgrid_event table and " + numMailLog
+                       + " rows deleted from mail_log table. Deleted information has been recorded in "
+                       + bucketName + " in file " + filename + ".csv";
         } catch (ClassNotFoundException | SQLException | ParseException | IOException e) {
             e.printStackTrace();
             return "ERROR: Database connection error or parsing error";
@@ -203,6 +218,7 @@ public class Clean implements RequestHandler<Object, String>, WriteLog {
         //Sets up the s3 bucket.
         AmazonS3 s3Client = AmazonS3ClientBuilder.defaultClient();
         
+        //Creates the PutObject request.
         try {
             PutObjectRequest request
                 = new PutObjectRequest(bucketName, file.getName(), new File(file.getName()));
@@ -215,7 +231,6 @@ public class Clean implements RequestHandler<Object, String>, WriteLog {
         } catch (SdkClientException e) {
             e.printStackTrace();
         }
-    
     }
     
     /**
