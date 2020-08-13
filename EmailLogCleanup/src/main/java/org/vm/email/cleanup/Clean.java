@@ -1,31 +1,21 @@
 package org.vm.email.cleanup;
 
-import java.io.File;
-import java.io.FileWriter;
-import java.io.IOException;
+import java.io.*;
 import java.sql.*;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.Date;
+import java.util.stream.Collectors;
 
-import com.amazonaws.AmazonServiceException;
-import com.amazonaws.SdkClientException;
 import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
-import com.amazonaws.services.s3.AmazonS3ClientBuilder;
-import com.amazonaws.services.s3.model.ObjectMetadata;
-import com.amazonaws.services.s3.model.PutObjectRequest;
-import com.amazonaws.services.s3.model.S3Object;
-import com.amazonaws.services.lambda.runtime.events.S3Event;
-import com.amazonaws.services.s3.AmazonS3;
-import com.amazonaws.services.s3.event.S3EventNotification.S3EventNotificationRecord;
-import org.vm.shared.WriteLog;
+import org.vm.shared.S3LogWriter;
 
 /**
  * Handler for requests to Lambda function.
  */
-public class Clean implements RequestHandler<Object, String>, WriteLog {
+public class Clean implements RequestHandler<Object, String> {
     
     /**
      * The body of the Lambda function. Takes in a basic string input (per requirements of RequestHandler
@@ -62,20 +52,23 @@ public class Clean implements RequestHandler<Object, String>, WriteLog {
             Connection con = DriverManager.getConnection(jdbc);
             
             //Creates new csv file to be written to.
-            File file = new File(filename + ".csv");
+            File file = new File("/tmp/" + filename + ".csv");
             if (file.createNewFile()) {
                 System.out.println("File Created: " + file.getName());
                 System.out.println("Path: " + file.getAbsolutePath());
             } else {
-                System.out.println("ERROR: Something wrong with writing file");
+                System.out.println("ERROR: Something wrong with writing file creation");
             }
             
             //Setup guid list to loop through.
             List<String> guidList = new ArrayList<>();
             
             //Sets up the csvWriter and the header for the csv.
-            FileWriter csvWriter = new FileWriter(filename + ".csv");
+            FileWriter csvWriter = new FileWriter("/tmp/" + filename + ".csv");
             writeCSVHeader(csvWriter);
+    
+            //Creates an instance of the S3LogWriterClass
+            S3LogWriter logWriter = new S3LogWriter();
      
             //Loop through all emails from before selected date of a certain type and add their info to a CSV file.
             String query = "SELECT * FROM mail_log WHERE sent_time < ? AND type != 'custom_email_to_volunteer' ORDER BY sent_time ASC LIMIT ?";
@@ -131,29 +124,55 @@ public class Clean implements RequestHandler<Object, String>, WriteLog {
             rs.close();
             csvWriter.flush();
             csvWriter.close();
-            WriteLog(file, bucketName);
+            logWriter.writeLog(file, bucketName);
     
             //Allows for deletions to occur regardless of references between tables.
             Statement stat = con.createStatement();
             stat.execute("SET FOREIGN_KEY_CHECKS=0");
-            
-            //Loops through saved guids from the recording phase and only deletes events that have been recorded.
-            int numSendgrid = 0;
-            for (String guid : guidList) {
-                String update = "DELETE FROM sendgrid_event WHERE guid = ?";
-                statement = con.prepareStatement(update);
-                statement.setString(1, guid);
-                int deletionNum = statement.executeUpdate();
-                numSendgrid = numSendgrid + deletionNum;
-                statement.close();
-            }
-            
-            //Deletes all mail_log information before a certain date with the limit set to match which logs are recorded.
-            String update = "DELETE FROM mail_log WHERE sent_time < ? AND type != 'custom_email_to_volunteer' ORDER BY sent_time ASC LIMIT ?";
+    
+            //Deletes recorded logs using a SQL array of the guids.
+            String update = "DELETE FROM sendgrid_event WHERE guid IN (?)";
+            String sqlIN = guidList.stream()
+                               .map(String::valueOf)
+                               .collect(Collectors.joining("','", "('", "')"));
+            update = update.replace("(?)", sqlIN);
             statement = con.prepareStatement(update);
-            statement.setTimestamp(1, dateX);
-            statement.setInt(2, maxEmailNum);
+            int numSendgrid = statement.executeUpdate();
+    
+            update = "DELETE FROM mail_log WHERE guid IN (?)";
+            update = update.replace("(?)", sqlIN);
+            statement = con.prepareStatement(update);
             int numMailLog = statement.executeUpdate();
+    
+            //Uses a a select statement to see if there are any of info of type custom_email_to_volunteer.
+            List<String> oppList = new ArrayList<>();
+            query = "SELECT guid FROM mail_log WHERE sent_time < ? AND type = 'custom_email_to_volunteer'";
+            statement = con.prepareStatement(query);
+            statement.setTimestamp(1, dateX);
+            ResultSet rs3 = statement.executeQuery();
+            while (rs3.next()) {
+                oppList.add(rs3.getString("guid"));
+            }
+            rs3.close();
+    
+            //If there are inputs of custom_email_to_volunteer, delete them.
+            if (!oppList.isEmpty()) {
+                update = "DELETE FROM mail_log WHERE sent_time < ? AND type = 'custom_email_to_volunteer'";
+                statement = con.prepareStatement(update);
+                statement.setTimestamp(1, dateX);
+                int mailLogAdd = statement.executeUpdate();
+        
+                update = "DELETE FROM sendgrid_event WHERE guid IN (?)";
+                sqlIN = oppList.stream()
+                            .map(String::valueOf)
+                            .collect(Collectors.joining("','", "('", "')"));
+                update = update.replace("(?)", sqlIN);
+                statement = con.prepareStatement(update);
+                int sendGridAdd = statement.executeUpdate();
+        
+                numMailLog = numMailLog + mailLogAdd;
+                numSendgrid = numSendgrid + sendGridAdd;
+            }
             
             //Closes connections and statements.
             stat.execute("SET FOREIGN_KEY_CHECKS=1");
@@ -207,93 +226,66 @@ public class Clean implements RequestHandler<Object, String>, WriteLog {
     }
     
     /**
-     * Method inherited from the WriteLog interface that will create a put request for the CSV file
-     * into the s3 bucket.
-     * @param file that is added to s3 bucket.
-     * @param bucketName is the name of the destination s3 bucket.
-     */
-    @Override
-    public void WriteLog(File file, String bucketName) {
-    
-        //Sets up the s3 bucket.
-        AmazonS3 s3Client = AmazonS3ClientBuilder.defaultClient();
-        
-        //Creates the PutObject request.
-        try {
-            PutObjectRequest request
-                = new PutObjectRequest(bucketName, file.getName(), new File(file.getName()));
-            ObjectMetadata metadata = new ObjectMetadata();
-            metadata.setContentType("plain/text");
-            metadata.addUserMetadata("title", "someTitle");
-            request.setMetadata(metadata);
-            s3Client.putObject(request);
-        
-        } catch (SdkClientException e) {
-            e.printStackTrace();
-        }
-    }
-    
-    /**
      * A helper method that prepares the CSV file header.
      * @param csvWriter with nothing in it.
      * @throws IOException if I/O error occurs.
      */
     private void writeCSVHeader(FileWriter csvWriter) throws IOException {
-        csvWriter.append("id");
+        csvWriter.append("ml_id");
         csvWriter.append(",");
-        csvWriter.append("email");
+        csvWriter.append("ml_email");
         csvWriter.append(",");
-        csvWriter.append("guid");
+        csvWriter.append("ml_guid");
         csvWriter.append(",");
-        csvWriter.append("host");
+        csvWriter.append("ml_host");
         csvWriter.append(",");
-        csvWriter.append("ref1");
+        csvWriter.append("ml_ref1");
         csvWriter.append(",");
-        csvWriter.append("ref2");
+        csvWriter.append("ml_ref2");
         csvWriter.append(",");
-        csvWriter.append("sent_time");
+        csvWriter.append("ml_sent_time");
         csvWriter.append(",");
-        csvWriter.append("type");
+        csvWriter.append("ml_type");
         csvWriter.append(",");
-        csvWriter.append("sg_event_id");
+        csvWriter.append("se_sg_event_id");
         csvWriter.append(",");
-        csvWriter.append("asm_group_id");
+        csvWriter.append("se_asm_group_id");
         csvWriter.append(",");
-        csvWriter.append("attempt");
+        csvWriter.append("se_attempt");
         csvWriter.append(",");
-        csvWriter.append("category");
+        csvWriter.append("se_category");
         csvWriter.append(",");
-        csvWriter.append("email");
+        csvWriter.append("se_email");
         csvWriter.append(",");
-        csvWriter.append("event");
+        csvWriter.append("se_event");
         csvWriter.append(",");
-        csvWriter.append("ip");
+        csvWriter.append("se_ip");
         csvWriter.append(",");
-        csvWriter.append("reason");
+        csvWriter.append("se_reason");
         csvWriter.append(",");
-        csvWriter.append("response");
+        csvWriter.append("se_response");
         csvWriter.append(",");
-        csvWriter.append("sg_message_id");
+        csvWriter.append("se_sg_message_id");
         csvWriter.append(",");
-        csvWriter.append("smtp_id");
+        csvWriter.append("se_smtp_id");
         csvWriter.append(",");
-        csvWriter.append("status");
+        csvWriter.append("se_status");
         csvWriter.append(",");
-        csvWriter.append("timestamp");
+        csvWriter.append("se_timestamp");
         csvWriter.append(",");
-        csvWriter.append("tls");
+        csvWriter.append("se_tls");
         csvWriter.append(",");
-        csvWriter.append("type");
+        csvWriter.append("se_type");
         csvWriter.append(",");
-        csvWriter.append("unsubscribe_url");
+        csvWriter.append("se_unsubscribe_url");
         csvWriter.append(",");
-        csvWriter.append("url");
+        csvWriter.append("se_url");
         csvWriter.append(",");
-        csvWriter.append("url_offset");
+        csvWriter.append("se_url_offset");
         csvWriter.append(",");
-        csvWriter.append("useragent");
+        csvWriter.append("se_useragent");
         csvWriter.append(",");
-        csvWriter.append("vm_timestamp");
+        csvWriter.append("se_vm_timestamp");
         csvWriter.append("\n");
     }
 }
