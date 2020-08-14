@@ -66,9 +66,6 @@ public class Clean implements RequestHandler<Object, String> {
             //Sets up the csvWriter and the header for the csv.
             FileWriter csvWriter = new FileWriter("/tmp/" + filename + ".csv");
             writeCSVHeader(csvWriter);
-    
-            //Creates an instance of the S3LogWriterClass
-            S3LogWriter logWriter = new S3LogWriter();
      
             //Loop through all emails from before selected date of a certain type and add their info to a CSV file.
             String query = "SELECT * FROM mail_log WHERE sent_time < ? AND type != 'custom_email_to_volunteer' ORDER BY sent_time ASC LIMIT ?";
@@ -124,7 +121,10 @@ public class Clean implements RequestHandler<Object, String> {
             rs.close();
             csvWriter.flush();
             csvWriter.close();
-            logWriter.writeLog(file, bucketName);
+            
+            //Creates an instance of the S3LogWriterClass and writes the file to the s3
+            S3LogWriter logWriter = new S3LogWriter(file, bucketName);
+            logWriter.writeLog();
     
             //Allows for deletions to occur regardless of references between tables.
             Statement stat = con.createStatement();

@@ -11,17 +11,32 @@ import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.InputStream;
 
+/**
+ * The S3LogWriter class takes is a class that implements the WriteLog interface and specifiying it
+ * to write to a file to an s3 bucket.
+ */
 public class S3LogWriter implements WriteLog{
   
+  private final File file;
+  private final String bucket;
+  
+  /**
+   * The constructor takes in the file to be written and the name of the destination S3 bucket.
+   * @param tempFile to be written to s3.
+   * @param bucketName is the name of the destination bucket in AWS.
+   */
+  public S3LogWriter(File tempFile, String bucketName) {
+    file = tempFile;
+    bucket = bucketName;
+    
+  }
   
   /**
    * Method inherited from the WriteLog interface that will create a put request for a file
    * into an s3 bucket.
-   * @param file that is added to s3 bucket.
-   * @param bucketName is the name of the destination s3 bucket.
    */
   @Override
-  public void writeLog(File file, String bucketName) {
+  public void writeLog() {
     //Sets up the s3 bucket.
     AmazonS3 s3Client = AmazonS3ClientBuilder.defaultClient();
   
@@ -29,7 +44,7 @@ public class S3LogWriter implements WriteLog{
     try {
       InputStream stream = new FileInputStream(file);
       PutObjectRequest request
-          = new PutObjectRequest(bucketName, file.getName(), stream, new ObjectMetadata());
+          = new PutObjectRequest(bucket, file.getName(), stream, new ObjectMetadata());
       ObjectMetadata metadata = new ObjectMetadata();
       metadata.setContentType("plain/text");
       metadata.addUserMetadata("title", "someTitle");
