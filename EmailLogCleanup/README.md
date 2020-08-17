@@ -6,7 +6,12 @@ function that uses a scheduled trigger to delete old
 email logs on a daily basis. This functions by taking in an environment
 variable that determines how many days ago the cutoff will be for deletion.
 The function then outputs how many entries have been deleted from each
-table.
+table and writes the deleted records to CSV files in a specified S3 bucket.
+The only deleted files that will not be written to 
+the saved CSV are those that correspond with an email
+of type "custom email to volunteer". Note that the CSV file contains
+a pair of an email log and one of it's sendgrid event logs, and therefore information
+on each individual email will be duplicated for each corresponding sendgrid event.
 
 ### Prerequisites:
 To use this function, a user will need access to an IAM role
@@ -32,7 +37,7 @@ console.
 1. The first step is to login to the console with your IAM role connected
 to the VolunteerMatch account. 
 2. Under "Services", click Lambda, or search for it in the search bar.
-3. The name of the function is "dev-emailcleanup".
+3. The name of the function is "dev-csvcleanup".
 4. Once on the function page you will see under the "Designer" pane
 that the EventBridge triggers the function. The EventBridge trigger consists
 of a rule that can be changed, and it determines how often the function runs.
