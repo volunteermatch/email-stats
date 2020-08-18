@@ -1,6 +1,5 @@
 package org.vm.email.cleanup;
 
-import java.io.*;
 import java.sql.*;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
@@ -11,6 +10,7 @@ import java.util.stream.Collectors;
 import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
 import org.vm.shared.S3LogWriter;
+import org.vm.shared.SharedFileWriter;
 
 /**
  * Handler for requests to Lambda function.
@@ -30,6 +30,9 @@ public class Clean implements RequestHandler<Object, String> {
             //Get desired timestamp to refer to for database update.
             String offset = System.getenv("OFFSET");
             Timestamp dateX = convertToTimestamp(offset);
+            
+            //Get basename for file.
+            String baseName = System.getenv("BASE_FILENAME");
             
             //Retrieve the number of emails to be logged to each created file.
             String emailNum = System.getenv("EMAILNUM");
@@ -54,10 +57,9 @@ public class Clean implements RequestHandler<Object, String> {
             List<String> guidList = new ArrayList<>();
             
             //Sets up variables used for creating new files.
-            Writer writer = null;
-            FileWriter csvWriter = null;
+            SharedFileWriter writer = null;
             String firstTimestamp = null;
-            S3LogWriter logWriter = null;
+            S3LogWriter bucketWriter = new S3LogWriter(bucketName);
             int fileNumber = 1;
      
             //Loop through all emails from before selected date of a certain type and add their info to a CSV file.
@@ -67,22 +69,18 @@ public class Clean implements RequestHandler<Object, String> {
             ResultSet rs = statement.executeQuery();
             while (rs.next()) {
                 //If no file has been created yet, create the first file.
-                if (csvWriter == null) {
+                if (writer == null) {
                     firstTimestamp = tsToString(rs.getTimestamp("sent_time"));
-                    writer = new Writer(firstTimestamp + "_" + fileNumber);
-                    csvWriter = writer.getFileWriter();
+                    writer = new CleanCSVWriter("/tmp/",baseName + firstTimestamp + "_" + fileNumber);
                 
                 //If a file has already been created but it has recorded the max number of emails, write file
                 //to S3 bucket and create a new file to write to.
                 } else if (maxEmailNum == 0) {
-                    csvWriter.flush();
-                    csvWriter.close();
-                    logWriter = new S3LogWriter(writer.getFile(), bucketName);
-                    logWriter.writeLog();
+                    writer.flushAndClose();
+                    bucketWriter.writeLog(writer.getFile());
                     writer.deleteFile();
                     fileNumber ++;
-                    writer = new Writer(firstTimestamp + "_" + fileNumber);
-                    csvWriter = writer.getFileWriter();
+                    writer = new CleanCSVWriter("/tmp/", baseName + firstTimestamp + "_" + fileNumber);
                     maxEmailNum = Integer.parseInt(emailNum);
                 }
                 //Decrements the maxEmailNum to track how many emails have been recorded in the current file.
@@ -133,31 +131,32 @@ public class Clean implements RequestHandler<Object, String> {
                     eventInfo.add(tsToString(rs2.getTimestamp("vm_timestamp")));
                     
                     //Writes mail log and sendgrid event info into a new line in the CSV file.
-                    csvWriter.append(String.join(",", mailInfo));
-                    csvWriter.append(",");
-                    csvWriter.append(String.join(",", eventInfo));
-                    csvWriter.append("\n");
+                    List<List<String>> infoForFile = new ArrayList<>(2);
+                    infoForFile.add(mailInfo);
+                    infoForFile.add(eventInfo);
+                    writer.writeToFile(infoForFile);
                 }
                 //If no events associated with a given email, it adds it to the CSV file with no events.
                 if (!events) {
-                    csvWriter.append(String.join(",", mailInfo));
-                    csvWriter.append(",");
-                    csvWriter.append("No events associated with this email");
-                    csvWriter.append("\n");
+                    
+                    //Change so that it leaves a single row empty
+                    List<List<String>> infoForFile = new ArrayList<>(2);
+                    infoForFile.add(mailInfo);
+                    infoForFile.add(new ArrayList<>());
+                    writer.writeToFile(infoForFile);
                 }
                 rs2.close();
             }
             rs.close();
-        
+            
+            
+            //Delete should happen after each file is written, not all at once
             //If CSV writer is not null, that means that entries were found and recorded and are ready to be deleted.
-            if (csvWriter != null) {
-                csvWriter.flush();
-                csvWriter.close();
+            if (writer != null) {
+                writer.flushAndClose();
     
                 //Writes the last log to S3 bucket.
-                assert writer != null;
-                logWriter = new S3LogWriter(writer.getFile(), bucketName);
-                logWriter.writeLog();
+                bucketWriter.writeLog(writer.getFile());
                 
                 //Allows for deletions to occur regardless of references between tables.
                 Statement stat = con.createStatement();
@@ -194,6 +193,7 @@ public class Clean implements RequestHandler<Object, String> {
                     statement.setTimestamp(1, dateX);
                     int mailLogAdd = statement.executeUpdate();
         
+                    //Can you join in a delete a delete statement.
                     update = "DELETE FROM sendgrid_event WHERE guid IN (?)";
                     sqlIN = oppList.stream()
                                 .map(String::valueOf)
@@ -214,19 +214,19 @@ public class Clean implements RequestHandler<Object, String> {
     
                 System.out.println("SUCCESS: " + numSendgrid + " rows deleted from sendgrid_event table and " + numMailLog
                                        + " rows deleted from mail_log table. Deleted information has been recorded in "
-                                       + bucketName + " in files titled emailEventStore" + firstTimestamp + ".csv");
+                                       + bucketName + " in files titled " + baseName + firstTimestamp + ".csv");
     
                 return "SUCCESS: " + numSendgrid + " rows deleted from sendgrid_event table and " + numMailLog
                            + " rows deleted from mail_log table. Deleted information has been recorded in "
-                           + bucketName + " in files titled emailEventStore" + firstTimestamp + ".csv";
+                           + bucketName + "  in files titled " + baseName + firstTimestamp + ".csv";
                 
-            //If the CSVwriter was null, that means no data fit the criteria to be deleted.
+            //If the Writer was null, that means no data fit the criteria to be deleted.
             } else {
                 System.out.println("No data in the specified time frame. Nothing deleted or recorded from database");
                 return "No data in the specified time frame. Nothing deleted or recorded from database";
             }
             
-        } catch (ClassNotFoundException | SQLException | ParseException | IOException e) {
+        } catch (ClassNotFoundException | SQLException | ParseException e) {
             e.printStackTrace();
             return "ERROR: Database connection error or parsing error";
         }

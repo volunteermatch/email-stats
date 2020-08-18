@@ -17,17 +17,16 @@ import java.io.InputStream;
  */
 public class S3LogWriter implements WriteLog{
   
-  private final File file;
   private final String bucket;
   
   /**
    * The constructor takes in the file to be written and the name of the destination S3 bucket.
-   * @param tempFile to be written to s3.
    * @param bucketName is the name of the destination bucket in AWS.
    */
-  public S3LogWriter(File tempFile, String bucketName) {
-    file = tempFile;
+  public S3LogWriter(String bucketName) {
     bucket = bucketName;
+    
+    //Change to use write log to take in file, not in constructor
     
   }
   
@@ -36,7 +35,7 @@ public class S3LogWriter implements WriteLog{
    * into an s3 bucket.
    */
   @Override
-  public void writeLog() {
+  public void writeLog(File file) {
     //Sets up the s3 bucket.
     AmazonS3 s3Client = AmazonS3ClientBuilder.defaultClient();
   
