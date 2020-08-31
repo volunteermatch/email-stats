@@ -13,6 +13,11 @@ of type "custom email to volunteer". Note that the CSV file contains
 a pair of an email log and one of it's sendgrid event logs, and therefore information
 on each individual email will be duplicated for each corresponding sendgrid event.
 
+#### Note on file types and file creation:
+This project has been designed in such a way that should VolunteerMatch decide 
+to change the file type of the created files later on, they may easily do so
+by making use of the SharedFileWriter abstract class.
+
 ### Prerequisites:
 To use this function, a user will need access to an IAM role
 that is conencted to the VolunteerMatch vm_eng AWS account.
@@ -58,6 +63,10 @@ you may give it an arbitrary object input. Use the default input event:
 If you wish to alter the cutoff date for the email log deletion, just
 change the environment variable "OFFSET" to the desired integer. 
 - Ex: If the OFFSET is 365, any email older than 1 year will be deleted.
+
+To change which bucket the program writes files to, simply change
+the BUCKET environment variable. This new bucket must have the proper permissions for
+being written to by the Lambda function.
 
 ### How to Contribute:
 

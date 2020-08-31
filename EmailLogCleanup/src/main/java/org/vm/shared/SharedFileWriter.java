@@ -102,7 +102,7 @@ public abstract class SharedFileWriter {
   }
   
   /**
-   * Writes input string to file.
+   * Writes input string to the file using the file writer.
    * @param info with desired String
    */
   public void writeInfo(String info) {
