@@ -6,9 +6,6 @@ import com.amazonaws.services.s3.AmazonS3ClientBuilder;
 import com.amazonaws.services.s3.model.ObjectMetadata;
 import com.amazonaws.services.s3.model.PutObjectRequest;
 
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileNotFoundException;
 import java.io.InputStream;
 
 /**
@@ -20,14 +17,11 @@ public class S3LogWriter implements WriteLog{
   private final String bucket;
   
   /**
-   * The constructor takes in the file to be written and the name of the destination S3 bucket.
+   * The constructor takes in the name of the destination S3 bucket.
    * @param bucketName is the name of the destination bucket in AWS.
    */
   public S3LogWriter(String bucketName) {
     bucket = bucketName;
-    
-    //Change to use write log to take in file, not in constructor
-    
   }
   
   /**
@@ -35,22 +29,21 @@ public class S3LogWriter implements WriteLog{
    * into an s3 bucket.
    */
   @Override
-  public void writeLog(File file) {
+  public void writeLog(InputStream stream, String filename) {
     //Sets up the s3 bucket.
     AmazonS3 s3Client = AmazonS3ClientBuilder.defaultClient();
   
     //Creates the PutObject request.
     try {
-      InputStream stream = new FileInputStream(file);
       PutObjectRequest request
-          = new PutObjectRequest(bucket, file.getName(), stream, new ObjectMetadata());
+          = new PutObjectRequest(bucket, filename, stream, new ObjectMetadata());
       ObjectMetadata metadata = new ObjectMetadata();
-      metadata.setContentType("plain/text");
-      metadata.addUserMetadata("title", "someTitle");
+      metadata.setContentType("text/csv");
+      
       request.setMetadata(metadata);
       s3Client.putObject(request);
     
-    } catch (SdkClientException | FileNotFoundException e) {
+    } catch (SdkClientException e) {
       e.printStackTrace();
     }
   }

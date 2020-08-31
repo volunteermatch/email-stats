@@ -1,95 +1,89 @@
 package org.vm.email.cleanup;
 
-import org.vm.shared.CSVWriter;
+import org.vm.shared.SharedCSVWriter;
 
-import java.io.FileWriter;
-import java.io.IOException;
-import java.util.List;
-
-public class CleanCSVWriter extends CSVWriter {
+/**
+ * This class inherits from the SharedCSVWriter abstract class, which inherits methods from SharedFileWriter
+ * class. The CleanCSVWriter is the implementation of a CSVWriter specifically for the Clean method.
+ * Every line in the resulting csv file will contain information from mail log paired with one of it's sendgrid events.
+ */
+public class CleanCSVWriter extends SharedCSVWriter {
   
   /**
-   * The constructor creates the new desired file, a file writer to write to the new file, and a writes
-   * the header for the file.
+   * The constructor uses the SharedCSVWriter constructor and establishes that the comma
+   * is the chosen value separator.
    * @param filePath for the new file
    * @param filename of the new file.
    */
   public CleanCSVWriter(String filePath, String filename) {
-    super(filePath, filename);
+    super(filePath, filename, ',');
   }
   
+  /**
+   * The write to file method is used in Clean and takes in an Array of Strings containing
+   * info to write as a line. Each time this method is called, it automatically writes a new line with the
+   * given information and separates each entry in the array with a comma.
+   * @param o in this case will be of type String[].
+   */
   @Override
   public void writeToFile(Object o) {
-    List<List<String>> fileInfo = (List<List<String>>) o;
-    super.writeString(String.join(",", fileInfo.get(0)));
-    if (fileInfo.get(1).size() > 0) {
-      super.addComma();
-      super.writeString(String.join(",", fileInfo.get(1)));
-    }
-    super.newLine();
+    String[] fileInfo = checkForCommas((String[]) o);
+    super.writeNextLine(fileInfo);
   }
   
-  @Override
-  public void writeCSVHeader(FileWriter csvWriter) {
-    try {
-      csvWriter.append("ml_id");
-      csvWriter.append(",");
-      csvWriter.append("ml_email");
-      csvWriter.append(",");
-      csvWriter.append("ml_guid");
-      csvWriter.append(",");
-      csvWriter.append("ml_host");
-      csvWriter.append(",");
-      csvWriter.append("ml_ref1");
-      csvWriter.append(",");
-      csvWriter.append("ml_ref2");
-      csvWriter.append(",");
-      csvWriter.append("ml_sent_time");
-      csvWriter.append(",");
-      csvWriter.append("ml_type");
-      csvWriter.append(",");
-      csvWriter.append("se_sg_event_id");
-      csvWriter.append(",");
-      csvWriter.append("se_asm_group_id");
-      csvWriter.append(",");
-      csvWriter.append("se_attempt");
-      csvWriter.append(",");
-      csvWriter.append("se_category");
-      csvWriter.append(",");
-      csvWriter.append("se_email");
-      csvWriter.append(",");
-      csvWriter.append("se_event");
-      csvWriter.append(",");
-      csvWriter.append("se_ip");
-      csvWriter.append(",");
-      csvWriter.append("se_reason");
-      csvWriter.append(",");
-      csvWriter.append("se_response");
-      csvWriter.append(",");
-      csvWriter.append("se_sg_message_id");
-      csvWriter.append(",");
-      csvWriter.append("se_smtp_id");
-      csvWriter.append(",");
-      csvWriter.append("se_status");
-      csvWriter.append(",");
-      csvWriter.append("se_timestamp");
-      csvWriter.append(",");
-      csvWriter.append("se_tls");
-      csvWriter.append(",");
-      csvWriter.append("se_type");
-      csvWriter.append(",");
-      csvWriter.append("se_unsubscribe_url");
-      csvWriter.append(",");
-      csvWriter.append("se_url");
-      csvWriter.append(",");
-      csvWriter.append("se_url_offset");
-      csvWriter.append(",");
-      csvWriter.append("se_useragent");
-      csvWriter.append(",");
-      csvWriter.append("se_vm_timestamp");
-      csvWriter.append("\n");
-    } catch (IOException e) {
-      e.printStackTrace();
+  
+  /**
+   * This method is called each time a new line is written to the file and checks whether or not
+   * a comma is present in any of the entries. If it is, it will escape that entry by surrounding it in quotes.
+   * @param fileInfo is array of info to be written to CSV.
+   * @return the same array but with all entries with commas properly escaped.
+   */
+  public String[] checkForCommas(String[] fileInfo) {
+    for (int i = 0; i < fileInfo.length; i++) {
+      if (fileInfo[i] != null) {
+        if (fileInfo[i].contains(",")) {
+          fileInfo[i] = "\"" + fileInfo[i] + "\"";
+        }
+      }
     }
+    return fileInfo;
+  }
+  
+  /**
+   * This header is derived from the columns in the database the Clean method accesses.
+   */
+  @Override
+  public void writeCSVHeader() {
+    String[] header = new String[28];
+    header[0] = "ml_id";
+    header[1] = "ml_email";
+    header[2] = "ml_guid";
+    header[3] = "ml_host";
+    header[4] = "ml_ref1";
+    header[5] = "ml_ref2";
+    header[6] = "ml_sent_time";
+    header[7] = "ml_type";
+    header[8] = "se_sg_event_id";
+    header[9] = "se_asm_group_id";
+    header[10] = "se_attempt";
+    header[11] = "se_category";
+    header[12] = "se_email";
+    header[13] = "se_event";
+    header[14] = "se_ip";
+    header[15] = "se_reason";
+    header[16] = "se_response";
+    header[17] = "se_sg_message_id";
+    header[18] = "se_smtp_id";
+    header[19] = "se_status";
+    header[20] = "se_timestamp";
+    header[21] = "se_tls";
+    header[22] = "se_type";
+    header[23] = "se_unsubscribe_url";
+    header[24] = "se_url";
+    header[25] = "se_url_offset";
+    header[26] = "se_useragent";
+    header[27] = "se_vm_timestamp";
+    super.writeNextLine(header);
+  
   }
 }

@@ -1,5 +1,8 @@
 package org.vm.email.cleanup;
 
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
+import java.io.InputStream;
 import java.sql.*;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
@@ -56,12 +59,23 @@ public class Clean implements RequestHandler<Object, String> {
             //Setup guid list to loop through.
             List<String> guidList = new ArrayList<>();
             
-            //Sets up variables used for creating new files.
+            //Sets up variables used for creating new files. The SharedFileWriter is an abstract class that allows for
+            //the writing of various file types. In this case it is a CSV file.
             SharedFileWriter writer = null;
+            
+            //This will be the Timestamp of the first log from the queried section of the database and will be used for
+            //naming the CSV file.
             String firstTimestamp = null;
+            
+            //The bucketWriter is used to write newly created files to the desired S3 bucket.
             S3LogWriter bucketWriter = new S3LogWriter(bucketName);
+            
+            //Will increment as new files are created and added on to the file name.
             int fileNumber = 1;
-     
+            
+            //Tracks how many rows are deleted in both mail_log and sendgrid_event tables.
+            int logTracker = 0;
+    
             //Loop through all emails from before selected date of a certain type and add their info to a CSV file.
             String query = "SELECT * FROM mail_log WHERE sent_time < ? AND type != 'custom_email_to_volunteer' ORDER BY sent_time ASC";
             PreparedStatement statement = con.prepareStatement(query);
@@ -77,8 +91,11 @@ public class Clean implements RequestHandler<Object, String> {
                 //to S3 bucket and create a new file to write to.
                 } else if (maxEmailNum == 0) {
                     writer.flushAndClose();
-                    bucketWriter.writeLog(writer.getFile());
+                    InputStream stream = new FileInputStream(writer.getFile());
+                    bucketWriter.writeLog(stream, writer.getFile().getName());
                     writer.deleteFile();
+                    logTracker = cleanDelete(con, guidList, logTracker);
+                    guidList = new ArrayList<>();
                     fileNumber ++;
                     writer = new CleanCSVWriter("/tmp/", baseName + firstTimestamp + "_" + fileNumber);
                     maxEmailNum = Integer.parseInt(emailNum);
@@ -86,15 +103,16 @@ public class Clean implements RequestHandler<Object, String> {
                 //Decrements the maxEmailNum to track how many emails have been recorded in the current file.
                 maxEmailNum --;
     
-                List<String> mailInfo = new ArrayList<>();
-                mailInfo.add(Integer.toString(rs.getInt("id")));
-                mailInfo.add(rs.getString("email"));
-                mailInfo.add(rs.getString("guid"));
-                mailInfo.add(rs.getString("host"));
-                mailInfo.add(rs.getString("ref1"));
-                mailInfo.add(rs.getString("ref2"));
-                mailInfo.add(tsToString(rs.getTimestamp("sent_time")));
-                mailInfo.add(rs.getString("type"));
+                //Creates Array of strings with info from the mail log.
+                String[] mailInfo = new String[8];
+                mailInfo[0] = (Integer.toString(rs.getInt("id")));
+                mailInfo[1] = (rs.getString("email"));
+                mailInfo[2] = (rs.getString("guid"));
+                mailInfo[3] = (rs.getString("host"));
+                mailInfo[4] = (rs.getString("ref1"));
+                mailInfo[5] = (rs.getString("ref2"));
+                mailInfo[6] = (tsToString(rs.getTimestamp("sent_time")));
+                mailInfo[7] = (rs.getString("type"));
                 
                 //Query to find all sendgrid events associated with an email.
                 query = "SELECT * FROM sendgrid_event WHERE sendgrid_event.guid = ?";
@@ -108,130 +126,134 @@ public class Clean implements RequestHandler<Object, String> {
                 boolean events = false;
                 while (rs2.next()) {
                     events = true;
-                    List<String> eventInfo = new ArrayList<>();
-                    eventInfo.add(rs2.getString("sg_event_id"));
-                    eventInfo.add(Integer.toString(rs2.getInt("asm_group_id")));
-                    eventInfo.add(rs2.getString("attempt"));
-                    eventInfo.add(rs2.getString("category"));
-                    eventInfo.add(rs2.getString("email"));
-                    eventInfo.add(rs2.getString("event"));
-                    eventInfo.add(rs2.getString("ip"));
-                    eventInfo.add(rs2.getString("reason"));
-                    eventInfo.add(rs2.getString("response"));
-                    eventInfo.add(rs2.getString("sg_message_id"));
-                    eventInfo.add(rs2.getString("smtp_id"));
-                    eventInfo.add(rs2.getString("status"));
-                    eventInfo.add(tsToString(rs2.getTimestamp("timestamp")));
-                    eventInfo.add(Integer.toString(rs2.getInt("tls")));
-                    eventInfo.add(rs2.getString("type"));
-                    eventInfo.add(rs2.getString("unsubscribe_url"));
-                    eventInfo.add(rs2.getString("url"));
-                    eventInfo.add(rs2.getString("url_offset"));
-                    eventInfo.add(rs2.getString("useragent"));
-                    eventInfo.add(tsToString(rs2.getTimestamp("vm_timestamp")));
-                    
-                    //Writes mail log and sendgrid event info into a new line in the CSV file.
-                    List<List<String>> infoForFile = new ArrayList<>(2);
-                    infoForFile.add(mailInfo);
-                    infoForFile.add(eventInfo);
-                    writer.writeToFile(infoForFile);
+                    //Array of strings representing the given sendgrid event info associated with the mail guid.
+                    String[] eventInfo = new String[20];
+                    eventInfo[0] = (rs2.getString("sg_event_id"));
+                    eventInfo[1] = (Integer.toString(rs2.getInt("asm_group_id")));
+                    eventInfo[2] = (rs2.getString("attempt"));
+                    eventInfo[3] = (rs2.getString("category"));
+                    eventInfo[4] = (rs2.getString("email"));
+                    eventInfo[5] = (rs2.getString("event"));
+                    eventInfo[6] = (rs2.getString("ip"));
+                    eventInfo[7] = (rs2.getString("reason"));
+                    eventInfo[8] = (rs2.getString("response"));
+                    eventInfo[9] = (rs2.getString("sg_message_id"));
+                    eventInfo[10] = (rs2.getString("smtp_id"));
+                    eventInfo[11] = (rs2.getString("status"));
+                    eventInfo[12] = (tsToString(rs2.getTimestamp("timestamp")));
+                    eventInfo[13] = (Integer.toString(rs2.getInt("tls")));
+                    eventInfo[14] = (rs2.getString("type"));
+                    eventInfo[15] = (rs2.getString("unsubscribe_url"));
+                    eventInfo[16] = (rs2.getString("url"));
+                    eventInfo[17] = (rs2.getString("url_offset"));
+                    eventInfo[18] = (rs2.getString("useragent"));
+                    eventInfo[19] = (tsToString(rs2.getTimestamp("vm_timestamp")));
+    
+                    //Concatenates the two arrays to be write the entire line to the file.
+                    int length = mailInfo.length + eventInfo.length;
+                    String[] combined = new String[length];
+                    int pos = 0;
+                    for (String element : mailInfo) {
+                        combined[pos] = element;
+                        pos++;
+                    }
+                    for (String element : eventInfo) {
+                        combined[pos] = element;
+                        pos++;
+                    }
+                    writer.writeToFile(combined);
+   
                 }
                 //If no events associated with a given email, it adds it to the CSV file with no events.
                 if (!events) {
-                    
-                    //Change so that it leaves a single row empty
-                    List<List<String>> infoForFile = new ArrayList<>(2);
-                    infoForFile.add(mailInfo);
-                    infoForFile.add(new ArrayList<>());
-                    writer.writeToFile(infoForFile);
+                    writer.writeToFile(mailInfo);
                 }
                 rs2.close();
             }
             rs.close();
             
-            
-            //Delete should happen after each file is written, not all at once
-            //If CSV writer is not null, that means that entries were found and recorded and are ready to be deleted.
+            //Writer is null if there are no emails in the specified time frame that are recorded/deleted.
             if (writer != null) {
                 writer.flushAndClose();
     
                 //Writes the last log to S3 bucket.
-                bucketWriter.writeLog(writer.getFile());
+                InputStream stream = new FileInputStream(writer.getFile());
+                bucketWriter.writeLog(stream, writer.getFile().getName());
+                logTracker = cleanDelete(con, guidList, logTracker);
                 
-                //Allows for deletions to occur regardless of references between tables.
-                Statement stat = con.createStatement();
-                stat.execute("SET FOREIGN_KEY_CHECKS=0");
-    
-                //Deletes recorded logs using a SQL array of the guids.
-                String update = "DELETE FROM sendgrid_event WHERE guid IN (?)";
-                String sqlIN = guidList.stream()
-                                   .map(String::valueOf)
-                                   .collect(Collectors.joining("','", "('", "')"));
-                update = update.replace("(?)", sqlIN);
-                statement = con.prepareStatement(update);
-                int numSendgrid = statement.executeUpdate();
-    
-                update = "DELETE FROM mail_log WHERE guid IN (?)";
-                update = update.replace("(?)", sqlIN);
-                statement = con.prepareStatement(update);
-                int numMailLog = statement.executeUpdate();
-    
-                //Uses a a select statement to see if there are any of info of type custom_email_to_volunteer.
-                List<String> oppList = new ArrayList<>();
-                query = "SELECT guid FROM mail_log WHERE sent_time < ? AND type = 'custom_email_to_volunteer'";
-                statement = con.prepareStatement(query);
-                statement.setTimestamp(1, dateX);
-                ResultSet rs3 = statement.executeQuery();
-                while (rs3.next()) {
-                    oppList.add(rs3.getString("guid"));
-                }
-                rs3.close();
-                //If there are inputs of custom_email_to_volunteer, delete them.
-                if (!oppList.isEmpty()) {
-                    update = "DELETE FROM mail_log WHERE sent_time < ? AND type = 'custom_email_to_volunteer'";
-                    statement = con.prepareStatement(update);
-                    statement.setTimestamp(1, dateX);
-                    int mailLogAdd = statement.executeUpdate();
-        
-                    //Can you join in a delete a delete statement.
-                    update = "DELETE FROM sendgrid_event WHERE guid IN (?)";
-                    sqlIN = oppList.stream()
-                                .map(String::valueOf)
-                                .collect(Collectors.joining("','", "('", "')"));
-                    update = update.replace("(?)", sqlIN);
-                    statement = con.prepareStatement(update);
-                    int sendGridAdd = statement.executeUpdate();
-        
-                    numMailLog = numMailLog + mailLogAdd;
-                    numSendgrid = numSendgrid + sendGridAdd;
-                }
-    
-                //Closes connections and statements.
-                stat.execute("SET FOREIGN_KEY_CHECKS=1");
+                //Deletes all info of type custom_email_to_volunteer from specified timeframe.
+                int numOfCustomToVolunteer = deleteCustomToVolunteer(con, dateX);
+                
+                //Total number of emails deleted.
+                int combinedNum = logTracker + numOfCustomToVolunteer;
+                
                 statement.close();
-                stat.close();
                 con.close();
     
-                System.out.println("SUCCESS: " + numSendgrid + " rows deleted from sendgrid_event table and " + numMailLog
-                                       + " rows deleted from mail_log table. Deleted information has been recorded in "
-                                       + bucketName + " in files titled " + baseName + firstTimestamp + ".csv");
+                String outputMessage = "SUCCESS: " + combinedNum + " rows deleted from database. " + logTracker + " rows of deleted information have been recorded in "
+                               + bucketName + " in files titled " + baseName + firstTimestamp + ".csv";
+                System.out.println(outputMessage);
     
-                return "SUCCESS: " + numSendgrid + " rows deleted from sendgrid_event table and " + numMailLog
-                           + " rows deleted from mail_log table. Deleted information has been recorded in "
-                           + bucketName + "  in files titled " + baseName + firstTimestamp + ".csv";
-                
-            //If the Writer was null, that means no data fit the criteria to be deleted.
+                return outputMessage;
             } else {
-                System.out.println("No data in the specified time frame. Nothing deleted or recorded from database");
-                return "No data in the specified time frame. Nothing deleted or recorded from database";
-            }
-            
-        } catch (ClassNotFoundException | SQLException | ParseException e) {
+            System.out.println("No data in the specified time frame. Nothing deleted or recorded from database");
+            return "No data in the specified time frame. Nothing deleted or recorded from database";
+        }
+        } catch (ClassNotFoundException | SQLException | ParseException | FileNotFoundException e) {
             e.printStackTrace();
             return "ERROR: Database connection error or parsing error";
         }
     }
     
+    /**
+     * Deletes information from the database once it has been recorded.
+     * @param con is the current connection.
+     * @param guidList the list of guids that determine which info is ready to be deleted.
+     * @param logTracker the number of emails that have already been deleted in this run of the program
+     * @return the updated number of emails that have been deleted.
+     * @throws SQLException in case of error.
+     */
+    public int cleanDelete(Connection con, List<String> guidList, int logTracker) throws SQLException {
+        Statement stat = con.createStatement();
+        stat.execute("SET FOREIGN_KEY_CHECKS=0");
+    
+        //Deletes recorded logs using a SQL array of the guids.
+        String update = "DELETE mail_log, sendgrid_event FROM mail_log INNER JOIN sendgrid_event WHERE mail_log.guid IN (?) AND (mail_log.guid = sendgrid_event.guid OR sendgrid_event.guid IS NULL)";
+        String sqlIN = guidList.stream()
+                           .map(String::valueOf)
+                           .collect(Collectors.joining("','", "('", "')"));
+        update = update.replace("(?)", sqlIN);
+        PreparedStatement statement = con.prepareStatement(update);
+        int numDeleted = statement.executeUpdate();
+    
+        //Closes connections and statements.
+        stat.execute("SET FOREIGN_KEY_CHECKS=1");
+        statement.close();
+        stat.close();
+        return logTracker + numDeleted;
+    }
+    
+    /**
+     * Deletes all emails of type "custom_email_to_volunteer" from the database before specified date.
+     * @param con is the current connection.
+     * @param dateX is the date determining which files are deleted.
+     * @return The total number of rows deleted from this operation.
+     * @throws SQLException in case of error.
+     */
+    public int deleteCustomToVolunteer(Connection con, Timestamp dateX) throws SQLException {
+        Statement stat = con.createStatement();
+        stat.execute("SET FOREIGN_KEY_CHECKS=0");
+        
+        String update = "DELETE mail_log, sendgrid_event FROM mail_log INNER JOIN sendgrid_event ON mail_log.guid = sendgrid_event.guid WHERE mail_log.type = 'custom_email_to_volunteer' AND sent_time < ?";
+        PreparedStatement statement = con.prepareStatement(update);
+        statement.setTimestamp(1, dateX);
+        int addNumDeleted = statement.executeUpdate();
+    
+        stat.execute("SET FOREIGN_KEY_CHECKS=1");
+        statement.close();
+        stat.close();
+        return addNumDeleted;
+    }
     
     /**
      * Takes a number in the form of a string representing a number of days and returns
