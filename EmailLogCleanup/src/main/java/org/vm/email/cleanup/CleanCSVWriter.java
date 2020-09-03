@@ -31,7 +31,6 @@ public class CleanCSVWriter extends SharedCSVWriter {
     super.writeNextLine(fileInfo);
   }
   
-  
   /**
    * This method is called each time a new line is written to the file and checks whether or not
    * a comma is present in any of the entries. If it is, it will escape that entry by surrounding it in quotes.

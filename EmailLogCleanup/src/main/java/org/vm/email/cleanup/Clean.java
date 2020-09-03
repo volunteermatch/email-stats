@@ -74,7 +74,7 @@ public class Clean implements RequestHandler<Object, String> {
             int fileNumber = 1;
             
             //Tracks how many rows are deleted in both mail_log and sendgrid_event tables.
-            int logTracker = 0;
+            int numDeleted = 0;
     
             //Loop through all emails from before selected date of a certain type and add their info to a CSV file.
             String query = "SELECT * FROM mail_log WHERE sent_time < ? AND type != 'custom_email_to_volunteer' ORDER BY sent_time ASC";
@@ -94,7 +94,8 @@ public class Clean implements RequestHandler<Object, String> {
                     InputStream stream = new FileInputStream(writer.getFile());
                     bucketWriter.writeLog(stream, writer.getFile().getName());
                     writer.deleteFile();
-                    logTracker = cleanDelete(con, guidList, logTracker);
+                    int numFromDeletion = cleanDelete(con, guidList);
+                    numDeleted = numDeleted + numFromDeletion;
                     guidList = new ArrayList<>();
                     fileNumber ++;
                     writer = new CleanCSVWriter("/tmp/", baseName + firstTimestamp + "_" + fileNumber);
@@ -179,18 +180,19 @@ public class Clean implements RequestHandler<Object, String> {
                 //Writes the last log to S3 bucket.
                 InputStream stream = new FileInputStream(writer.getFile());
                 bucketWriter.writeLog(stream, writer.getFile().getName());
-                logTracker = cleanDelete(con, guidList, logTracker);
+                int numFromDeletion = cleanDelete(con, guidList);
+                numDeleted = numDeleted + numFromDeletion;
                 
                 //Deletes all info of type custom_email_to_volunteer from specified timeframe.
                 int numOfCustomToVolunteer = deleteCustomToVolunteer(con, dateX);
                 
                 //Total number of emails deleted.
-                int combinedNum = logTracker + numOfCustomToVolunteer;
+                int combinedNum = numDeleted + numOfCustomToVolunteer;
                 
                 statement.close();
                 con.close();
     
-                String outputMessage = "SUCCESS: " + combinedNum + " rows deleted from database. " + logTracker + " rows of deleted information have been recorded in "
+                String outputMessage = "SUCCESS: " + combinedNum + " rows deleted from database. " + numDeleted + " rows of deleted information have been recorded in "
                                + bucketName + " in files titled " + baseName + firstTimestamp + ".csv";
                 System.out.println(outputMessage);
     
@@ -209,28 +211,32 @@ public class Clean implements RequestHandler<Object, String> {
      * Deletes information from the database once it has been recorded.
      * @param con is the current connection.
      * @param guidList the list of guids that determine which info is ready to be deleted.
-     * @param logTracker the number of emails that have already been deleted in this run of the program
-     * @return the updated number of emails that have been deleted.
+     * @return the number of emails deleted from this call of the method.
      * @throws SQLException in case of error.
      */
-    public int cleanDelete(Connection con, List<String> guidList, int logTracker) throws SQLException {
+    public int cleanDelete(Connection con, List<String> guidList) throws SQLException {
         Statement stat = con.createStatement();
         stat.execute("SET FOREIGN_KEY_CHECKS=0");
     
         //Deletes recorded logs using a SQL array of the guids.
-        String update = "DELETE mail_log, sendgrid_event FROM mail_log INNER JOIN sendgrid_event WHERE mail_log.guid IN (?) AND (mail_log.guid = sendgrid_event.guid OR sendgrid_event.guid IS NULL)";
+        String update = "DELETE FROM sendgrid_event WHERE guid IN (?)";
         String sqlIN = guidList.stream()
                            .map(String::valueOf)
                            .collect(Collectors.joining("','", "('", "')"));
         update = update.replace("(?)", sqlIN);
         PreparedStatement statement = con.prepareStatement(update);
-        int numDeleted = statement.executeUpdate();
+        int numSendgrid = statement.executeUpdate();
+    
+        update = "DELETE FROM mail_log WHERE guid IN (?)";
+        update = update.replace("(?)", sqlIN);
+        statement = con.prepareStatement(update);
+        int numMailLog = statement.executeUpdate();
     
         //Closes connections and statements.
         stat.execute("SET FOREIGN_KEY_CHECKS=1");
         statement.close();
         stat.close();
-        return logTracker + numDeleted;
+        return numSendgrid + numMailLog;
     }
     
     /**
@@ -244,7 +250,9 @@ public class Clean implements RequestHandler<Object, String> {
         Statement stat = con.createStatement();
         stat.execute("SET FOREIGN_KEY_CHECKS=0");
         
-        String update = "DELETE mail_log, sendgrid_event FROM mail_log INNER JOIN sendgrid_event ON mail_log.guid = sendgrid_event.guid WHERE mail_log.type = 'custom_email_to_volunteer' AND sent_time < ?";
+        String update = "DELETE mail_log, sendgrid_event FROM mail_log INNER JOIN sendgrid_event " +
+                            "ON mail_log.guid = sendgrid_event.guid WHERE " +
+                            "mail_log.type = 'custom_email_to_volunteer' AND sent_time < ?";
         PreparedStatement statement = con.prepareStatement(update);
         statement.setTimestamp(1, dateX);
         int addNumDeleted = statement.executeUpdate();
