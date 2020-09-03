@@ -192,7 +192,7 @@ public class Clean implements RequestHandler<Object, String> {
                 statement.close();
                 con.close();
     
-                String outputMessage = "SUCCESS: " + combinedNum + " rows deleted from database. " + numDeleted + " rows of deleted information have been recorded in "
+                String outputMessage = "SUCCESS: " + combinedNum + " rows deleted from database. " + numOfCustomToVolunteer + " Opp Alerts have been deleted and " + numDeleted + " rows of deleted information have been recorded in "
                                + bucketName + " in files titled " + baseName + firstTimestamp + ".csv";
                 System.out.println(outputMessage);
     
