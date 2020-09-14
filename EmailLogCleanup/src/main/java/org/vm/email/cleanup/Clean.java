@@ -272,11 +272,7 @@ public class Clean implements RequestHandler<Object, String> {
         Calendar cal = Calendar.getInstance();
         cal.add(Calendar.DATE, -offDays);
         java.util.Date date = cal.getTime();
-        SimpleDateFormat format1 = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
-        String stringDate = format1.format(date);
-        java.util.Date dateJ = format1.parse(stringDate);
-        java.sql.Date sDate = new java.sql.Date(dateJ.getTime());
-        return new Timestamp(sDate.getTime());
+        return new Timestamp(date.getTime());
     }
     
     /**
