@@ -6,7 +6,8 @@ import com.amazonaws.services.s3.AmazonS3ClientBuilder;
 import com.amazonaws.services.s3.model.ObjectMetadata;
 import com.amazonaws.services.s3.model.PutObjectRequest;
 
-import java.io.InputStream;
+import java.io.File;
+import java.io.IOException;
 
 /**
  * The S3LogWriter class takes is a class that implements the WriteLog interface and specifiying it
@@ -29,17 +30,16 @@ public class S3LogWriter implements WriteLog{
    * into an s3 bucket.
    */
   @Override
-  public void writeLog(InputStream stream, String filename) {
+  public void writeLog(File file, String filename) throws IOException {
     //Sets up the s3 bucket.
     AmazonS3 s3Client = AmazonS3ClientBuilder.defaultClient();
   
     //Creates the PutObject request.
     try {
       PutObjectRequest request
-          = new PutObjectRequest(bucket, filename, stream, new ObjectMetadata());
+          = new PutObjectRequest(bucket, filename, file);
       ObjectMetadata metadata = new ObjectMetadata();
       metadata.setContentType("text/csv");
-      
       request.setMetadata(metadata);
       s3Client.putObject(request);
     

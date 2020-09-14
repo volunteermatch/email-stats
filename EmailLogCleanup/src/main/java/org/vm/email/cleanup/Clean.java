@@ -1,8 +1,6 @@
 package org.vm.email.cleanup;
 
-import java.io.FileInputStream;
-import java.io.FileNotFoundException;
-import java.io.InputStream;
+import java.io.IOException;
 import java.sql.*;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
@@ -91,8 +89,7 @@ public class Clean implements RequestHandler<Object, String> {
                 //to S3 bucket and create a new file to write to.
                 } else if (maxEmailNum == 0) {
                     writer.flushAndClose();
-                    InputStream stream = new FileInputStream(writer.getFile());
-                    bucketWriter.writeLog(stream, writer.getFile().getName());
+                    bucketWriter.writeLog(writer.getFile(), writer.getFile().getName());
                     writer.deleteFile();
                     int numFromDeletion = cleanDelete(con, guidList);
                     numDeleted = numDeleted + numFromDeletion;
@@ -178,8 +175,7 @@ public class Clean implements RequestHandler<Object, String> {
                 writer.flushAndClose();
     
                 //Writes the last log to S3 bucket.
-                InputStream stream = new FileInputStream(writer.getFile());
-                bucketWriter.writeLog(stream, writer.getFile().getName());
+                bucketWriter.writeLog(writer.getFile(), writer.getFile().getName());
                 int numFromDeletion = cleanDelete(con, guidList);
                 numDeleted = numDeleted + numFromDeletion;
                 
@@ -201,7 +197,7 @@ public class Clean implements RequestHandler<Object, String> {
             System.out.println("No data in the specified time frame. Nothing deleted or recorded from database");
             return "No data in the specified time frame. Nothing deleted or recorded from database";
         }
-        } catch (ClassNotFoundException | SQLException | ParseException | FileNotFoundException e) {
+        } catch (ClassNotFoundException | SQLException | ParseException | IOException e) {
             e.printStackTrace();
             return "ERROR: Database connection error or parsing error";
         }
@@ -276,7 +272,7 @@ public class Clean implements RequestHandler<Object, String> {
         Calendar cal = Calendar.getInstance();
         cal.add(Calendar.DATE, -offDays);
         java.util.Date date = cal.getTime();
-        SimpleDateFormat format1 = new SimpleDateFormat("yyyy-MM-dd");
+        SimpleDateFormat format1 = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
         String stringDate = format1.format(date);
         java.util.Date dateJ = format1.parse(stringDate);
         java.sql.Date sDate = new java.sql.Date(dateJ.getTime());
@@ -289,9 +285,11 @@ public class Clean implements RequestHandler<Object, String> {
      * @return timestamp in a string format that mimics the database timestamp format.
      */
     private String tsToString(Timestamp ts) {
+        SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+        sdf.setTimeZone(TimeZone.getTimeZone("PST"));
         Date date = new Date();
         date.setTime(ts.getTime());
-        return new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(date);
+        return sdf.format(date);
     }
     
 }
